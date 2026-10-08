@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full bg-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kanban de Saída e Giro de Estoque Parado</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .kanban-col-min {
+            min-height: calc(100vh - 290px);
+        }
+
+        .drag-over-zone {
+            background-color: #e2e8f0 !important;
+            border-style: dashed !important;
+        }
+
+        .card-ghost {
+            opacity: 0.4;
+            transform: scale(0.97);
+        }
+
+        @keyframes alert-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+        }
+
+        .critical-pulse {
+            animation: alert-pulse 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-full flex flex-col antialiased selection:bg-amber-200 selection:text-amber-900">
+
+    <!-- CABEÇALHO PRINCIPAL -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-[1920px] mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+            
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 rounded-xl bg-amber-500 text-white shadow-md shadow-amber-200 flex items-center justify-center">
+                    <i class="fa-solid fa-boxes-packing text-xl"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-extrabold text-lg text-slate-900 tracking-tight">Kanban de Saída & Giro de Estoque</h1>
+                        <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-red-100 border border-red-200 text-red-700 flex items-center gap-1.5 shadow-sm">
+                            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                            Foco Prioritário: >60 Dias Parados
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-500">Gestão Visual para Destravar Produtos Acabados Sem Giro</p>
+                </div>
+            </div>
+
+            <!-- Botões de Ação do Cabeçalho -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <button onclick="toggleGuideModal()" class="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-300 transition flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-circle-question text-amber-600 text-sm"></i>
+                    <span>Como Funciona a Priorização?</span>
+                </button>
+                <button onclick="resetToInitialData()" title="Restaurar o cenário inicial das 1.000 peças" class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-300 text-xs transition font-medium flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span class="hidden sm:inline">Restaurar Dados</span>
+                </button>
+                <button onclick="openLotModal()" class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md shadow-amber-200 transition flex items-center gap-2">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Cadastrar Novo Lote</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- BARRA DE LEGENDA VISUAL -->
+    <section class="bg-white border-b border-slate-200 py-2.5 px-4 sm:px-6">
+        <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2 text-slate-500 font-semibold">
+                <i class="fa-solid fa-palette text-amber-500"></i>
+                <span class="text-slate-700">Classificação Visual por Idade do Estoque:</span>
+            </div>
+            
+            <div class="flex items-center gap-3 flex-wrap">
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-50 border border-red-200 font-bold text-red-700">
+                    <span>🔴 >60 dias</span>
+                    <span class="text-[10px] font-normal text-red-600">(Prioridade Máxima)</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-50 border border-orange-200 font-bold text-orange-700">
+                    <span>🟠 45 a 60 dias</span>
+                    <span class="text-[10px] font-normal text-orange-600">(Próxima Prioridade)</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 font-bold text-amber-700">
+                    <span>🟡 30 a 45 dias</span>
+                    <span class="text-[10px] font-normal text-amber-600">(Acompanhar)</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 font-bold text-emerald-700">
+                    <span>🟢 &lt;30 dias</span>
+                    <span class="text-[10px] font-normal text-emerald-600">(Fluxo Normal)</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CONTAINER PRINCIPAL -->
+    <main class="flex-1 max-w-[1920px] w-full mx-auto px-4 sm:px-6 py-5 flex flex-col gap-5">
+
+        <!-- PAINEL DE MÉTRICAS (KPIS) E FILTROS -->
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+            
+            <!-- KPIs (Grid de 8 colunas em telas grandes) -->
+            <div class="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                
+                <!-- KPI 1: Total de Peças -->
+                <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
+                    <span class="text-[11px] uppercase font-bold tracking-wider text-slate-500">Total no Quadro</span>
+                    <div class="mt-1 flex items-baseline justify-between">
+                        <span class="text-2xl font-extrabold text-slate-800" id="kpi-total-pecas">1.000</span>
+                        <span class="text-xs font-semibold text-slate-500">peças</span>
+                    </div>
+                    <span class="text-[11px] text-slate-400 font-medium mt-1" id="kpi-lotes-count">5 lotes ativos</span>
+                </div>
+
+                <!-- KPI 2: Capital Empacado -->
+                <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
+                    <span class="text-[11px] uppercase font-bold tracking-wider text-amber-700">Capital Bloqueado</span>
+                    <div class="mt-1">
+                        <span class="text-xl font-extrabold text-amber-600" id="kpi-capital-total">R$ 0</span>
+                    </div>
+                    <span class="text-[11px] text-slate-400 font-medium mt-1">Produtos sem giro</span>
+                </div>
+
+                <!-- KPI 3: Críticos em Alerta (>60 dias) -->
+                <div class="bg-red-50/60 border border-red-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
+                    <span class="text-[11px] uppercase font-bold tracking-wider text-red-700 flex items-center gap-1">
+                        <i class="fa-solid fa-triangle-exclamation text-red-500"></i> Críticos (>60d)
+                    </span>
+                    <div class="mt-1 flex items-baseline justify-between">
+                        <span class="text-2xl font-extrabold text-red-600" id="kpi-critico-count">0</span>
+                        <span class="text-xs font-bold text-red-700" id="kpi-critico-pecas">(0 pçs)</span>
+                    </div>
+                    <span class="text-[11px] text-red-600/80 font-medium mt-1">Prioridade comercial imediata</span>
+                </div>
+
+                <!-- KPI 4: Capital Liberado (Expedidos) -->
+                <div class="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
+                    <span class="text-[11px] uppercase font-bold tracking-wider text-emerald-700 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-check text-emerald-500"></i> Capital Liberado
+                    </span>
+                    <div class="mt-1">
+                        <span class="text-xl font-extrabold text-emerald-600" id="kpi-capital-liberado">R$ 0</span>
+                    </div>
+                    <span class="text-[11px] text-emerald-700/80 font-medium mt-1" id="kpi-expedido-pecas">0 peças salvas</span>
+                </div>
+
+            </div>
+
+            <!-- FILTROS E BUSCA (4 colunas em telas grandes) -->
+            <div class="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between gap-2.5">
+                <span class="text-[11px] uppercase font-bold tracking-wider text-slate-500">Filtrar Lotes no Quadro</span>
+                
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <button onclick="setFilter('ALL')" id="btn-filter-all" class="filter-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-800 text-white transition shadow-sm">
+                        Todos
+                    </button>
+                    <button onclick="setFilter('CRITICAL')" id="btn-filter-critical" class="filter-btn px-3 py-1 rounded-lg text-xs font-semibold bg-red-100 text-red-800 border border-red-300 hover:bg-red-200 transition flex items-center gap-1">
+                        <span>🔴 >60d Críticos</span>
+                    </button>
+                    <button onclick="setFilter('PENDING')" id="btn-filter-pending" class="filter-btn px-3 py-1 rounded-lg text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition flex items-center gap-1">
+                        <span>⚠️ Sem Vendedor/Ação</span>
+                    </button>
+                </div>
+
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                    <input type="text" id="search-input" oninput="renderBoard()" placeholder="Buscar código, produto, responsável..." 
+                           class="w-full bg-slate-50 border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                </div>
+            </div>
+
+        </section>
+
+        <!-- QUADRO KANBAN (5 COLUNAS) -->
+        <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-start" id="kanban-board">
+            
+            <!-- COLUNA 1: 🟡 A PRIORIZAR -->
+            <div class="kanban-col-min bg-amber-50/40 border border-amber-200 border-t-4 border-t-amber-500 rounded-xl p-3 flex flex-col shadow-sm" 
+                 data-col="A_PRIORIZAR" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'A_PRIORIZAR')">
+                
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-amber-200/60">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🟡</span>
+                        <h2 class="font-extrabold text-xs uppercase tracking-wider text-amber-900">A Priorizar</h2>
+                    </div>
+                    <span id="badge-A_PRIORIZAR" class="bg-amber-200/80 text-amber-900 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                </div>
+
+                <div class="text-[11px] text-amber-800 font-medium mb-2.5 flex justify-between items-center px-0.5">
+                    <span class="text-amber-700/80">Aguardando definição</span>
+                    <span id="subtotal-A_PRIORIZAR" class="font-bold text-amber-900">0 pç</span>
+                </div>
+
+                <div id="cards-A_PRIORIZAR" class="flex-1 flex flex-col gap-3 min-h-[200px]"></div>
+            </div>
+
+            <!-- COLUNA 2: 🔵 EM VENDA -->
+            <div class="kanban-col-min bg-blue-50/40 border border-blue-200 border-t-4 border-t-blue-500 rounded-xl p-3 flex flex-col shadow-sm" 
+                 data-col="EM_VENDA" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'EM_VENDA')">
+                
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-blue-200/60">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🔵</span>
+                        <h2 class="font-extrabold text-xs uppercase tracking-wider text-blue-900">Em Venda</h2>
+                    </div>
+                    <span id="badge-EM_VENDA" class="bg-blue-200/80 text-blue-900 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                </div>
+
+                <div class="text-[11px] text-blue-800 font-medium mb-2.5 flex justify-between items-center px-0.5">
+                    <span class="text-blue-700/80">Prospecção / Oferta</span>
+                    <span id="subtotal-EM_VENDA" class="font-bold text-blue-900">0 pç</span>
+                </div>
+
+                <div id="cards-EM_VENDA" class="flex-1 flex flex-col gap-3 min-h-[200px]"></div>
+            </div>
+
+            <!-- COLUNA 3: 🟠 PEDIDO FECHADO -->
+            <div class="kanban-col-min bg-orange-50/40 border border-orange-200 border-t-4 border-t-orange-500 rounded-xl p-3 flex flex-col shadow-sm" 
+                 data-col="PEDIDO_FECHADO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'PEDIDO_FECHADO')">
+                
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-orange-200/60">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🟠</span>
+                        <h2 class="font-extrabold text-xs uppercase tracking-wider text-orange-900">Pedido Fechado</h2>
+                    </div>
+                    <span id="badge-PEDIDO_FECHADO" class="bg-orange-200/80 text-orange-900 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                </div>
+
+                <div class="text-[11px] text-orange-800 font-medium mb-2.5 flex justify-between items-center px-0.5">
+                    <span class="text-orange-700/80">Venda confirmada</span>
+                    <span id="subtotal-PEDIDO_FECHADO" class="font-bold text-orange-900">0 pç</span>
+                </div>
+
+                <div id="cards-PEDIDO_FECHADO" class="flex-1 flex flex-col gap-3 min-h-[200px]"></div>
+            </div>
+
+            <!-- COLUNA 4: 🟣 EM EXPEDIÇÃO -->
+            <div class="kanban-col-min bg-purple-50/40 border border-purple-200 border-t-4 border-t-purple-500 rounded-xl p-3 flex flex-col shadow-sm" 
+                 data-col="EM_EXPEDICAO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'EM_EXPEDICAO')">
+                
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-purple-200/60">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🟣</span>
+                        <h2 class="font-extrabold text-xs uppercase tracking-wider text-purple-900">Em Expedição</h2>
+                    </div>
+                    <span id="badge-EM_EXPEDICAO" class="bg-purple-200/80 text-purple-900 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                </div>
+
+                <div class="text-[11px] text-purple-800 font-medium mb-2.5 flex justify-between items-center px-0.5">
+                    <span class="text-purple-700/80">Separação e NF</span>
+                    <span id="subtotal-EM_EXPEDICAO" class="font-bold text-purple-900">0 pç</span>
+                </div>
+
+                <div id="cards-EM_EXPEDICAO" class="flex-1 flex flex-col gap-3 min-h-[200px]"></div>
+            </div>
+
+            <!-- COLUNA 5: 🟢 EXPEDIDO -->
+            <div class="kanban-col-min bg-emerald-50/40 border border-emerald-200 border-t-4 border-t-emerald-500 rounded-xl p-3 flex flex-col shadow-sm" 
+                 data-col="EXPEDIDO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'EXPEDIDO')">
+                
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-emerald-200/60">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">🟢</span>
+                        <h2 class="font-extrabold text-xs uppercase tracking-wider text-emerald-900">Expedido</h2>
+                    </div>
+                    <span id="badge-EXPEDIDO" class="bg-emerald-200/80 text-emerald-900 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                </div>
+
+                <div class="text-[11px] text-emerald-800 font-medium mb-2.5 flex justify-between items-center px-0.5">
+                    <span class="text-emerald-700/80">Concluído e faturado</span>
+                    <span id="subtotal-EXPEDIDO" class="font-bold text-emerald-900">0 pç</span>
+                </div>
+
+                <div id="cards-EXPEDIDO" class="flex-1 flex flex-col gap-3 min-h-[200px]"></div>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- MODAL: CADASTRAR / EDITAR LOTE -->
+    <div id="lot-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative text-slate-800">
+            <button onclick="closeLotModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="flex items-center space-x-3 mb-4 pb-3 border-b border-slate-100">
+                <div class="p-2.5 rounded-xl bg-amber-100 text-amber-700 font-bold">
+                    <i class="fa-solid fa-box-open"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-900" id="modal-title">Cadastrar Novo Lote</h3>
+                    <p class="text-xs text-slate-500">Insira os dados do produto para entrada no Kanban</p>
+                </div>
+            </div>
+
+            <form id="lot-form" onsubmit="saveLot(event)" class="space-y-3.5 text-xs">
+                <input type="hidden" id="form-id">
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Código do Lote *</label>
+                        <input type="text" id="form-code" required placeholder="Ex: Lote PA-001" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Estágio Inicial</label>
+                        <select id="form-column" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                            <option value="A_PRIORIZAR">🟡 A Priorizar</option>
+                            <option value="EM_VENDA">🔵 Em Venda</option>
+                            <option value="PEDIDO_FECHADO">🟠 Pedido Fechado</option>
+                            <option value="EM_EXPEDICAO">🟣 Em Expedição</option>
+                            <option value="EXPEDIDO">🟢 Expedido</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Descrição do Produto *</label>
+                    <input type="text" id="form-product" required placeholder="Ex: Válvula Industrial de Retenção 50mm" 
+                           class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Quantidade *</label>
+                        <input type="number" id="form-qty" required min="1" placeholder="200" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Valor Total (R$) *</label>
+                        <input type="number" id="form-value" required min="0" step="0.01" placeholder="48000" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Data Produção *</label>
+                        <input type="date" id="form-prod-date" required 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Vendedor Responsável</label>
+                        <input type="text" id="form-owner" placeholder="Ex: Carlos (Vendas)" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Cliente Alvo / Destino</label>
+                        <input type="text" id="form-client" placeholder="Ex: Indústria Metalúrgica do Sul" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Prazo para Ação</label>
+                        <input type="text" id="form-deadline" placeholder="Ex: Atribuição imediata / 48h" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Próxima Ação Definida</label>
+                        <input type="text" id="form-action" placeholder="Ex: Contato comercial / Deságio de 10%" 
+                               class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                    <button type="button" onclick="closeLotModal()" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold transition shadow-md shadow-amber-200">Salvar Lote</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL DE GUIA INTERATIVO DE FUNCIONAMENTO -->
+    <div id="guide-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative text-slate-800 max-h-[90vh] overflow-y-auto">
+            <button onclick="toggleGuideModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="flex items-center space-x-3 mb-4 pb-3 border-b border-slate-100">
+                <div class="p-2.5 rounded-xl bg-amber-100 text-amber-700 font-bold">
+                    <i class="fa-solid fa-lightbulb text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-900">Como o Quadro Kanban Ajuda a Priorizar o Estoque Parado?</h3>
+                    <p class="text-xs text-slate-500">Entenda a metodologia de aceleração de giro para produtos acabados</p>
+                </div>
+            </div>
+
+            <div class="space-y-4 text-xs text-slate-600 leading-relaxed">
+                
+                <div class="bg-amber-50 border border-amber-200 p-3.5 rounded-xl">
+                    <h4 class="font-bold text-amber-900 mb-1 flex items-center gap-1.5">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> O Desafio do Estoque Sem Giro
+                    </h4>
+                    <p>
+                        Produtos parados há mais de 60 dias representam capital de giro congelado e risco de obsolescência. O Kanban transforma esses itens passivos em um fluxo ativo de prospecção e expedição rápida.
+                    </p>
+                </div>
+
+                <div class="space-y-2">
+                    <h4 class="font-bold text-slate-800 text-sm">O Fluxo dos 5 Estágios de Saída:</h4>
+                    <ul class="space-y-2">
+                        <li class="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <span class="text-sm">🟡</span>
+                            <div>
+                                <strong class="text-slate-800 block">1. A Priorizar:</strong>
+                                Entram os lotes identificados como parados (especialmente os >60d). A prioridade aqui é definir <strong>Vendedor Responsável</strong> e <strong>Próxima Ação</strong>.
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <span class="text-sm">🔵</span>
+                            <div>
+                                <strong class="text-slate-800 block">2. Em Venda:</strong>
+                                O time comercial aborda clientes potenciais, aplica ofertas com deságio estratégico ou bonificação para escoar o lote.
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <span class="text-sm">🟠</span>
+                            <div>
+                                <strong class="text-slate-800 block">3. Pedido Fechado:</strong>
+                                Acordo comercial selado. O lote aguarda apenas validação financeira e agendamento de transporte.
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <span class="text-sm">🟣</span>
+                            <div>
+                                <strong class="text-slate-800 block">4. Em Expedição:</strong>
+                                O time de logística realiza a separação física, conferência, embalagem e emissão da Nota Fiscal.
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <span class="text-sm">🟢</span>
+                            <div>
+                                <strong class="text-slate-800 block">5. Expedido:</strong>
+                                Produto embarcado ou entregue. O valor do estoque é convertido em capital liberado de volta ao caixa!
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="bg-red-50 border border-red-200 p-3.5 rounded-xl">
+                    <h4 class="font-bold text-red-900 mb-1 flex items-center gap-1.5">
+                        <i class="fa-solid fa-shield-halved text-red-600"></i> A Regra de Ouro do Sistema
+                    </h4>
+                    <p class="text-red-800">
+                        <strong>Nenhum lote com mais de 60 dias pode permanecer na coluna "A Priorizar" sem um vendedor responsável e sem uma próxima ação com prazo definido!</strong> O sistema exibe um alerta visual (amarelo/vermelho) para lotes incompletos.
+                    </p>
+                </div>
+
+            </div>
+
+            <div class="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+                <button onclick="toggleGuideModal()" class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold transition text-xs shadow-md shadow-amber-200">Entendido!</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTAINER DE NOTIFICAÇÕES (TOASTS) -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <script>
+        // CENÁRIO INICIAL REQUERIDO (1.000 PEÇAS PARADAS HÁ MAIS DE 60 DIAS)
+        const INITIAL_LOTS = [
+            {
+                id: '1',
+                code: 'Lote PA-001',
+                product: 'Produto A — Válvulas Industriais 50mm',
+                quantity: 200,
+                unitValue: 240, // R$ 48.000
+                productionDate: '2026-07-25', // 68 dias parados
+                column: 'A_PRIORIZAR',
+                owner: '',
+                client: 'Cliente Alvo: Indústria Sul',
+                deadline: 'Atribuição Imediata',
+                nextAction: ''
+            },
+            {
+                id: '2',
+                code: 'Lote PA-002',
+                product: 'Produto B — Flanges de Aço Forjado',
+                quantity: 150,
+                unitValue: 180, // R$ 27.000
+                productionDate: '2026-07-21', // 72 dias parados
+                column: 'EM_VENDA',
+                owner: 'Vendas (Carlos)',
+                client: 'Prospecção: Metalúrgica Norte',
+                deadline: '48 horas',
+                nextAction: 'Oferta enviada com 10% de deságio'
+            },
+            {
+                id: '3',
+                code: 'Lote PA-003',
+                product: 'Produto C — Conectores Hidráulicos',
+                quantity: 100,
+                unitValue: 310, // R$ 31.000
+                productionDate: '2026-08-15', // 47 dias parados
+                column: 'PEDIDO_FECHADO',
+                owner: 'Expedição (Roberto)',
+                client: 'Cliente: PetroFittings Ltda',
+                deadline: 'Hoje',
+                nextAction: 'Pedido confirmado. Aguardando agendamento'
+            },
+            {
+                id: '4',
+                code: 'Lote PA-004',
+                product: 'Produto D — Eixos de Transmissão 30mm',
+                quantity: 80,
+                unitValue: 420, // R$ 33.600
+                productionDate: '2026-07-10', // 83 dias parados
+                column: 'EM_EXPEDICAO',
+                owner: 'Expedição (Ana)',
+                client: 'Transportadora: ExpressLOG',
+                deadline: 'Até as 17h',
+                nextAction: 'Separação concluída. NF emitida'
+            },
+            {
+                id: '5',
+                code: 'Lote PA-005',
+                product: 'Produto E — Acoplamentos Elásticos B4',
+                quantity: 120,
+                unitValue: 150, // R$ 18.000
+                productionDate: '2026-09-05', // 26 dias parados
+                column: 'EXPEDIDO',
+                owner: 'Expedição (Ana)',
+                client: 'Cliente: TechMachinery',
+                deadline: 'Concluído',
+                nextAction: 'Lote entregue e faturado'
+            },
+            {
+                id: '6',
+                code: 'Lote PA-006',
+                product: 'Produto F — Mangueiras de Alta Pressão 1"',
+                quantity: 350,
+                unitValue: 95, // R$ 33.250
+                productionDate: '2026-07-12', // 81 dias parados
+                column: 'A_PRIORIZAR',
+                owner: '',
+                client: 'Cliente Alvo: Agrobusiness S/A',
+                deadline: 'Urgente',
+                nextAction: ''
+            }
+        ];
+
+        let lots = [];
+        let currentFilter = 'ALL';
+        let draggedLotId = null;
+
+        // Data de referência de simulação do sistema (Outubro 2026)
+        const TODAY_BENCHMARK = new Date('2026-10-01');
+
+        window.onload = function() {
+            const saved = localStorage.getItem('kanban_lots_light');
+            if (saved) {
+                try { lots = JSON.parse(saved); } catch(e) { lots = [...INITIAL_LOTS]; }
+            } else {
+                lots = JSON.parse(JSON.stringify(INITIAL_LOTS));
+            }
+            saveLotsState();
+            renderBoard();
+        };
+
+        function saveLotsState() {
+            localStorage.setItem('kanban_lots_light', JSON.stringify(lots));
+        }
+
+        function resetToInitialData() {
+            if (confirm('Restaurar o quadro com os lotes originais das 1.000 peças?')) {
+                lots = JSON.parse(JSON.stringify(INITIAL_LOTS));
+                saveLotsState();
+                renderBoard();
+                showToast('Dados restaurados com sucesso.', 'info');
+            }
+        }
+
+        function toggleGuideModal() {
+            document.getElementById('guide-modal').classList.toggle('hidden');
+        }
+
+        function calculateDaysStuck(prodDateStr) {
+            const prodDate = new Date(prodDateStr);
+            const diffTime = Math.abs(TODAY_BENCHMARK - prodDate);
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+
+        function getAgingColorBadge(days) {
+            if (days > 60) {
+                return {
+                    badgeBg: 'bg-red-100 text-red-800 border-red-300 font-extrabold',
+                    borderCard: 'border-l-4 border-l-red-500 border-red-200 ring-1 ring-red-300/50',
+                    icon: '🔴',
+                    label: `${days} dias (Prioridade >60d)`
+                };
+            } else if (days >= 45) {
+                return {
+                    badgeBg: 'bg-orange-100 text-orange-800 border-orange-300 font-bold',
+                    borderCard: 'border-l-4 border-l-orange-500 border-orange-200',
+                    icon: '🟠',
+                    label: `${days} dias (45-60d)`
+                };
+            } else if (days >= 30) {
+                return {
+                    badgeBg: 'bg-amber-100 text-amber-800 border-amber-300 font-semibold',
+                    borderCard: 'border-l-4 border-l-amber-500 border-amber-200',
+                    icon: '🟡',
+                    label: `${days} dias (30-45d)`
+                };
+            } else {
+                return {
+                    badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-medium',
+                    borderCard: 'border-l-4 border-l-emerald-500 border-emerald-200',
+                    icon: '🟢',
+                    label: `${days} dias (<30d)`
+                };
+            }
+        }
+
+        function formatBRL(val) {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(val);
+        }
+
+        function setFilter(filterType) {
+            currentFilter = filterType;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.className = 'filter-btn px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 transition';
+            });
+
+            if (filterType === 'ALL') {
+                document.getElementById('btn-filter-all').className = 'filter-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-800 text-white transition shadow-sm';
+            } else if (filterType === 'CRITICAL') {
+                document.getElementById('btn-filter-critical').className = 'filter-btn px-3 py-1 rounded-lg text-xs font-bold bg-red-600 text-white transition shadow-sm';
+            } else if (filterType === 'PENDING') {
+                document.getElementById('btn-filter-pending').className = 'filter-btn px-3 py-1 rounded-lg text-xs font-bold bg-amber-600 text-white transition shadow-sm';
+            }
+
+            renderBoard();
+        }
+
+        function renderBoard() {
+            const search = document.getElementById('search-input').value.toLowerCase();
+            const columns = ['A_PRIORIZAR', 'EM_VENDA', 'PEDIDO_FECHADO', 'EM_EXPEDICAO', 'EXPEDIDO'];
+
+            columns.forEach(col => {
+                const el = document.getElementById(`cards-${col}`);
+                if (el) el.innerHTML = '';
+            });
+
+            let totalQty = 0;
+            let totalVal = 0;
+            let criticalCount = 0;
+            let criticalPcs = 0;
+            let capitalLiberado = 0;
+            let expedidoPcs = 0;
+
+            const colStats = {
+                A_PRIORIZAR: { qty: 0, count: 0 },
+                EM_VENDA: { qty: 0, count: 0 },
+                PEDIDO_FECHADO: { qty: 0, count: 0 },
+                EM_EXPEDICAO: { qty: 0, count: 0 },
+                EXPEDIDO: { qty: 0, count: 0 }
+            };
+
+            lots.forEach(lot => {
+                const days = calculateDaysStuck(lot.productionDate);
+                const isCritical = days > 60;
+                const hasNoOwner = !lot.owner || lot.owner.trim() === '';
+                const hasNoAction = !lot.nextAction || lot.nextAction.trim() === '';
+                const lotValue = lot.quantity * lot.unitValue;
+
+                totalQty += lot.quantity;
+                totalVal += lotValue;
+
+                if (isCritical && lot.column !== 'EXPEDIDO') {
+                    criticalCount++;
+                    criticalPcs += lot.quantity;
+                }
+
+                if (lot.column === 'EXPEDIDO') {
+                    capitalLiberado += lotValue;
+                    expedidoPcs += lot.quantity;
+                }
+
+                // Aplicação dos Filtros
+                let passesFilter = true;
+                if (currentFilter === 'CRITICAL' && !isCritical) passesFilter = false;
+                if (currentFilter === 'PENDING' && (!hasNoOwner && !hasNoAction)) passesFilter = false;
+
+                const matchesSearch = lot.code.toLowerCase().includes(search) ||
+                                      lot.product.toLowerCase().includes(search) ||
+                                      (lot.owner && lot.owner.toLowerCase().includes(search)) ||
+                                      (lot.client && lot.client.toLowerCase().includes(search));
+
+                if (passesFilter && matchesSearch) {
+                    colStats[lot.column].count++;
+                    colStats[lot.column].qty += lot.quantity;
+
+                    const card = createLotCard(lot, days, isCritical, hasNoOwner, hasNoAction, lotValue);
+                    const container = document.getElementById(`cards-${lot.column}`);
+                    if (container) container.appendChild(card);
+                }
+            });
+
+            // Atualiza cabeçalhos das colunas
+            columns.forEach(col => {
+                document.getElementById(`badge-${col}`).innerText = colStats[col].count;
+                document.getElementById(`subtotal-${col}`).innerText = `${colStats[col].qty.toLocaleString('pt-BR')} pç`;
+            });
+
+            // Atualiza KPIs do topo
+            document.getElementById('kpi-total-pecas').innerText = totalQty.toLocaleString('pt-BR');
+            document.getElementById('kpi-lotes-count').innerText = `${lots.length} lotes no total`;
+            document.getElementById('kpi-capital-total').innerText = formatBRL(totalVal);
+            document.getElementById('kpi-critico-count').innerText = criticalCount;
+            document.getElementById('kpi-critico-pecas').innerText = `(${criticalPcs.toLocaleString('pt-BR')} pçs)`;
+            document.getElementById('kpi-capital-liberado').innerText = formatBRL(capitalLiberado);
+            document.getElementById('kpi-expedido-pecas').innerText = `${expedidoPcs.toLocaleString('pt-BR')} peças expedidas`;
+        }
+
+        function createLotCard(lot, days, isCritical, hasNoOwner, hasNoAction, lotValue) {
+            const card = document.createElement('div');
+            const agingInfo = getAgingColorBadge(days);
+            const needsActionWarning = isCritical && (hasNoOwner || hasNoAction) && lot.column === 'A_PRIORIZAR';
+
+            card.className = `bg-white border rounded-xl p-3.5 shadow-sm hover:shadow-md transition duration-200 cursor-grab active:cursor-grabbing relative ${agingInfo.borderCard} ${
+                needsActionWarning ? 'critical-pulse border-red-300' : 'border-slate-200'
+            }`;
+
+            card.draggable = true;
+            card.dataset.id = lot.id;
+
+            card.addEventListener('dragstart', (e) => {
+                draggedLotId = lot.id;
+                card.classList.add('card-ghost');
+                e.dataTransfer.setData('text/plain', lot.id);
+            });
+
+            card.addEventListener('dragend', () => {
+                card.classList.remove('card-ghost');
+                draggedLotId = null;
+            });
+
+            card.innerHTML = `
+                <!-- Topo do Cartão -->
+                <div class="flex items-center justify-between gap-1 mb-2">
+                    <span class="font-extrabold text-xs text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">${lot.code}</span>
+                    
+                    <div class="flex items-center gap-1">
+                        <button onclick="editLot('${lot.id}')" title="Editar Lote" class="p-1 text-slate-400 hover:text-slate-700">
+                            <i class="fa-solid fa-pen-to-square text-xs"></i>
+                        </button>
+                        <button onclick="deleteLot('${lot.id}')" title="Excluir Lote" class="p-1 text-slate-400 hover:text-red-600">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Etiqueta de Idade do Estoque -->
+                <div class="mb-2">
+                    <span class="text-[10px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 shadow-xs ${agingInfo.badgeBg}">
+                        <span>${agingInfo.icon}</span>
+                        <span>${agingInfo.label}</span>
+                    </span>
+                </div>
+
+                <!-- Nome do Produto -->
+                <h4 class="font-bold text-xs text-slate-900 mb-2.5 leading-snug">
+                    ${lot.product}
+                </h4>
+
+                <!-- Quantidade e Valor -->
+                <div class="grid grid-cols-2 gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 mb-2.5 text-[11px]">
+                    <div>
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">Quantidade</span>
+                        <span class="font-black text-slate-800">${lot.quantity.toLocaleString('pt-BR')} peças</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">Valor Estoque</span>
+                        <span class="font-black text-amber-700">${formatBRL(lotValue)}</span>
+                    </div>
+                </div>
+
+                <!-- Informações Operacionais -->
+                <div class="space-y-1.5 text-[11px] pt-1">
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-500 text-[10px]">Cliente / Alvo:</span>
+                        <span class="font-semibold text-slate-700 truncate max-w-[140px]">${lot.client || '______'}</span>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-500 text-[10px]">Vendedor / Resp.:</span>
+                        <span class="font-bold ${hasNoOwner ? 'text-red-600 italic bg-red-50 px-1 rounded' : 'text-slate-800'}">
+                            ${lot.owner || '⚠️ PENDENTE'}
+                        </span>
+                    </div>
+
+                    <div class="bg-slate-50 p-2 rounded-lg border ${hasNoAction ? 'border-amber-300 bg-amber-50/50' : 'border-slate-200'} mt-1">
+                        <div class="flex items-center justify-between mb-0.5">
+                            <span class="text-[9px] uppercase font-bold text-slate-500">Próxima Ação:</span>
+                            <span class="text-[9px] font-bold text-amber-700">${lot.deadline || 'Sem prazo'}</span>
+                        </div>
+                        <p class="text-[10px] ${hasNoAction ? 'text-amber-800 font-bold italic' : 'text-slate-700'} leading-tight">
+                            ${lot.nextAction || '⚠️️ Definir ação comercial urgente'}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Seletor Rápido de Estágio -->
+                <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                    <span class="text-slate-400 font-medium">Mover coluna:</span>
+                    <select onchange="moveLotStage('${lot.id}', this.value)" class="bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-500">
+                        <option value="A_PRIORIZAR" ${lot.column === 'A_PRIORIZAR' ? 'selected' : ''}>🟡 A Priorizar</option>
+                        <option value="EM_VENDA" ${lot.column === 'EM_VENDA' ? 'selected' : ''}>🔵 Em Venda</option>
+                        <option value="PEDIDO_FECHADO" ${lot.column === 'PEDIDO_FECHADO' ? 'selected' : ''}>🟠 Pedido Fechado</option>
+                        <option value="EM_EXPEDICAO" ${lot.column === 'EM_EXPEDICAO' ? 'selected' : ''}>🟣 Em Expedição</option>
+                        <option value="EXPEDIDO" ${lot.column === 'EXPEDIDO' ? 'selected' : ''}>🟢 Expedido</option>
+                    </select>
+                </div>
+            `;
+
+            return card;
+        }
+
+        // --- MANIPULAÇÃO DE DRAG & DROP ---
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('drag-over-zone');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over-zone');
+        }
+
+        function handleDrop(e, targetColumn) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over-zone');
+
+            if (!draggedLotId) return;
+
+            const lot = lots.find(l => l.id === draggedLotId);
+            if (lot && lot.column !== targetColumn) {
+                lot.column = targetColumn;
+                saveLotsState();
+                renderBoard();
+                showToast(`Lote ${lot.code} movido para ${getColName(targetColumn)}`, 'success');
+            }
+        }
+
+        function moveLotStage(id, newStage) {
+            const lot = lots.find(l => l.id === id);
+            if (lot) {
+                lot.column = newStage;
+                saveLotsState();
+                renderBoard();
+                showToast(`Lote ${lot.code} atualizado!`, 'info');
+            }
+        }
+
+        function getColName(colKey) {
+            const names = {
+                A_PRIORIZAR: 'A Priorizar 🟡',
+                EM_VENDA: 'Em Venda 🔵',
+                PEDIDO_FECHADO: 'Pedido Fechado 🟠',
+                EM_EXPEDICAO: 'Em Expedição 🟣',
+                EXPEDIDO: 'Expedido 🟢'
+            };
+            return names[colKey] || colKey;
+        }
+
+        // --- GERENCIAMENTO DE MODAL E SALVAMENTO ---
+        function openLotModal() {
+            document.getElementById('lot-modal').classList.remove('hidden');
+            document.getElementById('modal-title').innerText = 'Cadastrar Novo Lote';
+            document.getElementById('lot-form').reset();
+            document.getElementById('form-id').value = '';
+
+            const pastDate = new Date(TODAY_BENCHMARK);
+            pastDate.setDate(pastDate.getDate() - 65);
+            document.getElementById('form-prod-date').value = pastDate.toISOString().split('T')[0];
+        }
+
+        function closeLotModal() {
+            document.getElementById('lot-modal').classList.add('hidden');
+        }
+
+        function editLot(id) {
+            const lot = lots.find(l => l.id === id);
+            if (!lot) return;
+
+            document.getElementById('modal-title').innerText = `Editar ${lot.code}`;
+            document.getElementById('form-id').value = lot.id;
+            document.getElementById('form-code').value = lot.code;
+            document.getElementById('form-column').value = lot.column;
+            document.getElementById('form-product').value = lot.product;
+            document.getElementById('form-qty').value = lot.quantity;
+            document.getElementById('form-value').value = lot.quantity * lot.unitValue;
+            document.getElementById('form-prod-date').value = lot.productionDate;
+            document.getElementById('form-owner').value = lot.owner || '';
+            document.getElementById('form-client').value = lot.client || '';
+            document.getElementById('form-deadline').value = lot.deadline || '';
+            document.getElementById('form-action').value = lot.nextAction || '';
+
+            document.getElementById('lot-modal').classList.remove('hidden');
+        }
+
+        function saveLot(e) {
+            e.preventDefault();
+
+            const id = document.getElementById('form-id').value;
+            const code = document.getElementById('form-code').value.trim();
+            const column = document.getElementById('form-column').value;
+            const product = document.getElementById('form-product').value.trim();
+            const quantity = parseInt(document.getElementById('form-qty').value, 10);
+            const totalVal = parseFloat(document.getElementById('form-value').value);
+            const unitValue = totalVal / (quantity || 1);
+            const productionDate = document.getElementById('form-prod-date').value;
+            const owner = document.getElementById('form-owner').value.trim();
+            const client = document.getElementById('form-client').value.trim();
+            const deadline = document.getElementById('form-deadline').value.trim();
+            const nextAction = document.getElementById('form-action').value.trim();
+
+            if (id) {
+                const lot = lots.find(l => l.id === id);
+                if (lot) {
+                    lot.code = code;
+                    lot.column = column;
+                    lot.product = product;
+                    lot.quantity = quantity;
+                    lot.unitValue = unitValue;
+                    lot.productionDate = productionDate;
+                    lot.owner = owner;
+                    lot.client = client;
+                    lot.deadline = deadline;
+                    lot.nextAction = nextAction;
+                }
+                showToast(`Lote ${code} atualizado!`, 'info');
+            } else {
+                const newLot = {
+                    id: Date.now().toString(),
+                    code,
+                    column,
+                    product,
+                    quantity,
+                    unitValue,
+                    productionDate,
+                    owner,
+                    client,
+                    deadline,
+                    nextAction
+                };
+                lots.push(newLot);
+                showToast(`Lote ${code} cadastrado no Kanban.`, 'success');
+            }
+
+            saveLotsState();
+            renderBoard();
+            closeLotModal();
+        }
+
+        function deleteLot(id) {
+            const lot = lots.find(l => l.id === id);
+            if (!lot) return;
+
+            if (confirm(`Remover o lote ${lot.code}?`)) {
+                lots = lots.filter(l => l.id !== id);
+                saveLotsState();
+                renderBoard();
+                showToast(`Lote ${lot.code} removido.`, 'warning');
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            const bgClasses = {
+                success: 'bg-emerald-700 text-white border-emerald-600',
+                warning: 'bg-amber-700 text-white border-amber-600',
+                info: 'bg-slate-800 text-white border-slate-700'
+            };
+
+            toast.className = `px-3.5 py-2 rounded-lg border shadow-lg text-xs font-bold flex items-center gap-2 transition duration-300 ${bgClasses[type] || bgClasses.info}`;
+            toast.innerHTML = `<i class="fa-solid fa-circle-info"></i><span>${message}</span>`;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
